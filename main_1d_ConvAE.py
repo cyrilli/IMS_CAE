@@ -7,6 +7,7 @@ Created on Fri Mar 17 09:49:19 2017
 """
 from conv2d import Conv2d
 from max_pool_2d import MaxPool2d
+from model import Model
 
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import gen_nn_ops
@@ -128,26 +129,28 @@ class Dataset:
             batch_raw_data = self.data[excerpt]   # (batch_size, num_steps, num_features+1)
             yield batch_raw_data
         
-    def gen_epochs(self, max_epoch):
-        for i in range(max_epoch):
-            yield self.gen_batch(shuffle = True) # the input data is padded
+    def gen_epochs(self, max_epoch,global_epoch):
+        for i in range(1+global_epoch, 1+global_epoch+max_epoch):
+            yield i, self.gen_batch(shuffle = True)
 
-def train():
-    BATCH_SIZE = 300
-    max_epoch = 600
+def train(batch_size, max_epoch, new_training = True):
+    BATCH_SIZE = batch_size
+    max_epoch = max_epoch
     
-    
-    network = Network(pretrain=False)
-    dataset = Dataset(data_path = './IMS_BearingData/',
-                      batch_size=BATCH_SIZE)
+    network = Network(pretrain=False)   # pretrain: use weights from TICNN, but this doesn't perform well
+    dataset = Dataset(data_path = './IMS_BearingData/', batch_size=BATCH_SIZE)
 
     with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
+        if new_training:
+            saver, global_epoch = Model.start_new_session(sess)
+        else:
+            saver, global_epoch = Model.continue_previous_session(sess, ckpt_file='./log/saver/checkpoint')
+        # for visualization by tensorboard
         train_writer = tf.summary.FileWriter('./log/conv_ae' + '/train',sess.graph)
-        saver = tf.train.Saver(tf.global_variables(), max_to_keep=None)
         
-        for i, epoch in enumerate(dataset.gen_epochs(max_epoch)):
-            print("Epoch: %d/%d..." % (i + 1, max_epoch))
+        
+        for i, epoch in dataset.gen_epochs(max_epoch, global_epoch):
+            print("Epoch: %d/%d..." % (i, global_epoch+max_epoch))
             step = 0  # the number of mini batch training in a epoch
             for batch_x in epoch:  # randomly select mini batch from training data
                 step += 1
@@ -156,7 +159,23 @@ def train():
                                               network.is_training: True})
                 train_writer.add_summary(summary, step)
                 if step % 10 == 0:
-                    print("epoch {}, step {}, training loss {}".format(i+1, step, loss))
-            saver.save(sess, './log/check_point/model_epoch', global_step=i+1)
+                    print("epoch {}, step {}, training loss {}".format(i, step, loss))
+            
+            # save checkpoint in every 10 epochs
+            if i % 10 == 0:
+                saver.save(sess, './log/saver/cae', global_step=i)
+                print('checkpoint saved')
+
+#def reconstruct():
+#    BATCH_SIZE = 1
+#    max_epoch = 1
+#    network = Network(pretrain=False)
+#    # need to modify Dataset for non Shuffle
+#    dataset = Dataset(data_path = './IMS_BearingData/ims_channel_segments_minmax/', batch_size=BATCH_SIZE)
+#    
+#    with tf.Session() as sess:
+#        saver, global_epoch = Model.continue_previous_session(sess, ckpt_file='./log/saver/checkpoint')
+#        train_writer = tf.summary.FileWriter('./log/conv_ae' + '/test',sess.graph)
+          
 if __name__ == '__main__':
-    train()
+    train(300, 600, new_training = False)
