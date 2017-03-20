@@ -14,8 +14,12 @@ from tensorflow.python.ops import gen_nn_ops
 import tensorflow as tf
 import numpy as np
 
-# Tensorboard /home/dawei/anaconda2/envs/lstm/lib/python3.5/site-packages/tensorflow/tensorboard/tensorboard.py --logdir=path/to/log-directory
-
+# Tensorboard:
+'''
+/home/dawei/anaconda2/envs/lstm/bin/python3.5 
+/home/dawei/anaconda2/envs/lstm/lib/python3.5/site-packages/tensorflow/tensorboard/tensorboard.py 
+--logdir=/home/dawei/cyril/1d_conv_encoder_decoder/log/conv_ae
+'''
 @ops.RegisterGradient("MaxPoolWithArgmax")
 def _MaxPoolWithArgmaxGrad(op, grad, unused_argmax_grad):
     return gen_nn_ops._max_pool_grad(op.inputs[0],
@@ -108,11 +112,11 @@ class Network:
         self.summary = tf.summary.merge_all()
 
 class Dataset:
-    def __init__(self, data_path, batch_size):
+    def __init__(self, data_path, data_name, batch_size):
         self.batch_size = batch_size
 
-        self.data = np.load(data_path + 'data_channel1_minmax_norm.npy')  # 175200, 2048
-        self.data = self.data.reshape((self.data.shape[0], self.data.shape[1], 1, 1))   # 175200, 2048, 1, 1
+        self.data = np.load(data_path + data_name)  # 21560, 2048
+        self.data = self.data.reshape((self.data.shape[0], self.data.shape[1], 1, 1))   # 21560, 2048, 1, 1
         
         
     def gen_batch(self, shuffle=True):
@@ -132,13 +136,14 @@ class Dataset:
     def gen_epochs(self, max_epoch,global_epoch):
         for i in range(1+global_epoch, 1+global_epoch+max_epoch):
             yield i, self.gen_batch(shuffle = True)
+            
 
 def train(batch_size, max_epoch, new_training = True):
     BATCH_SIZE = batch_size
     max_epoch = max_epoch
     
     network = Network(pretrain=False)   # pretrain: use weights from TICNN, but this doesn't perform well
-    dataset = Dataset(data_path = './IMS_BearingData/', batch_size=BATCH_SIZE)
+    dataset = Dataset(data_path = './IMS_BearingData/', data_name ='data_channel1_minmax_norm.npy' ,batch_size=BATCH_SIZE)
 
     with tf.Session() as sess:
         if new_training:
@@ -166,16 +171,30 @@ def train(batch_size, max_epoch, new_training = True):
                 saver.save(sess, './log/saver/cae', global_step=i)
                 print('checkpoint saved')
 
-#def reconstruct():
-#    BATCH_SIZE = 1
-#    max_epoch = 1
-#    network = Network(pretrain=False)
-#    # need to modify Dataset for non Shuffle
-#    dataset = Dataset(data_path = './IMS_BearingData/ims_channel_segments_minmax/', batch_size=BATCH_SIZE)
-#    
-#    with tf.Session() as sess:
-#        saver, global_epoch = Model.continue_previous_session(sess, ckpt_file='./log/saver/checkpoint')
-#        train_writer = tf.summary.FileWriter('./log/conv_ae' + '/test',sess.graph)
+def reconstruct():
+    BATCH_SIZE = 10
+    network = Network(pretrain=False)
+    # need to modify Dataset for non Shuffle
+    dataset_recon = Dataset(data_path = './IMS_BearingData/ims_channel_segments_minmax/', 
+                      data_name = 'data_channel_seg5_minmax.npy',
+                      batch_size=BATCH_SIZE)
+    #recon_loss_list = []
+    with tf.Session() as sess:
+        saver, global_epoch = Model.continue_previous_session(sess, ckpt_file='./log/saver/checkpoint')
+        train_writer = tf.summary.FileWriter('./log/conv_ae' + '/test',sess.graph)
+        step = 0
+        print('Start reconstructing test data..')
+        for x in dataset_recon.gen_batch(shuffle = False):
+            #print('input: ', x)
+            step += 1
+            loss, summary = sess.run([network.cost,  network.summary],
+                                     feed_dict = {network.inputs: x, network.targets: x,
+                                     network.is_training: False})
+            train_writer.add_summary(summary, step)
+            #recon_loss_list.append(loss)
+            if step % 1 == 0:
+                print("step {}, test reconstruction loss {}".format(step,loss))
           
 if __name__ == '__main__':
-    train(300, 600, new_training = False)
+    #train(300, 600, new_training = True)
+    reconstruct()
